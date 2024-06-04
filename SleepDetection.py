@@ -16,7 +16,7 @@ def ask_permission():
 
 def play_alert_sound():
     pygame.mixer.init()
-    pygame.mixer.music.load("E:/python/SleepDetector/alert.mp3")
+    pygame.mixer.music.load("E:/python/SleepDetector/Sound/alert.mp3")
     pygame.mixer.music.play()
 
 def stop_alert_sound():
