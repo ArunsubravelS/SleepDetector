@@ -3,10 +3,13 @@ import tkinter as tk
 from tkinter import messagebox
 import time
 import pygame
+import numpy as np
+import mediapipe as mp
+from scipy.spatial import distance
 
 def ask_permission():
     root = tk.Tk()
-    root.withdraw()  # Hide the root window
+    root.withdraw()  # <---Hide the root window
     result = messagebox.askyesno("Permission Request", "Do you allow access to the camera?")
     root.destroy()
     return result
@@ -16,74 +19,85 @@ def play_alert_sound():
     pygame.mixer.music.load("E:/python/SleepDetector/alert.mp3")
     pygame.mixer.music.play()
 
-if ask_permission():
-    # Load the pre-trained Haar Cascade classifiers for face and eye detection
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
+def stop_alert_sound():
+    pygame.mixer.music.stop()
 
-    # Initialize the webcam
+def eye_aspect_ratio(eye):
+    A = distance.euclidean(eye[1], eye[5])
+    B = distance.euclidean(eye[2], eye[4])
+    C = distance.euclidean(eye[0], eye[3])
+    ear = (A + B) / (2.0 * C)
+    return ear
+
+if ask_permission():
+    mp_face_mesh = mp.solutions.face_mesh
+    face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
         print("Error: Could not open webcam.")
     else:
-        # Define the codec and create a VideoWriter object to save the video
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out = cv2.VideoWriter('output.avi', fourcc, 20.0, (640, 480))
 
         last_blink_time = time.time()
-        blink_threshold = 5  # seconds to trigger the alert if no blink is detected
+        blink_threshold = 5
+        ear_threshold = 0.25
+        ear_consec_frames = 3
+        counter = 0
+        alert_playing = False
 
         while True:
-            # Capture frame-by-frame
             ret, frame = cap.read()
-
             if not ret:
                 break
 
-            # Convert the frame to grayscale (face and eye detection works better on grayscale images)
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = face_mesh.process(rgb_frame)
 
-            # Detect faces in the frame
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+            if results.multi_face_landmarks:
+                for face_landmarks in results.multi_face_landmarks:
+                    landmarks = face_landmarks.landmark
+                    left_eye = [(landmarks[i].x, landmarks[i].y) for i in [362, 385, 387, 263, 373, 380]]
+                    right_eye = [(landmarks[i].x, landmarks[i].y) for i in [33, 160, 158, 133, 153, 144]]
 
-            eyes_detected = False
+                    left_eye = np.array([(int(point[0] * frame.shape[1]), int(point[1] * frame.shape[0])) for point in left_eye])
+                    right_eye = np.array([(int(point[0] * frame.shape[1]), int(point[1] * frame.shape[0])) for point in right_eye])
 
-            for (x, y, w, h) in faces:
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
-                cv2.putText(frame, "Face Detected", (x, y + h + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+                    leftEAR = eye_aspect_ratio(left_eye)
+                    rightEAR = eye_aspect_ratio(right_eye)
+                    ear = (leftEAR + rightEAR) / 2.0
 
-                # Region of interest for eyes within the face
-                roi_gray = gray[y:y+h, x:x+w]
-                roi_color = frame[y:y+h, x:x+w]
+                    cv2.putText(frame, "EAR: {:.2f}".format(ear), (300, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-                # Detect eyes within the face region
-                eyes = eye_cascade.detectMultiScale(roi_gray)
-                if len(eyes) > 0:
-                    eyes_detected = True
+                    if ear < ear_threshold:
+                        counter += 1
+                        if counter >= ear_consec_frames:
+                            if not alert_playing:
+                                play_alert_sound()
+                                alert_playing = True
+                    else:
+                        counter = 0
+                        if alert_playing:
+                            stop_alert_sound()
+                            alert_playing = False
 
-            if eyes_detected:
-                last_blink_time = time.time()  # reset the timer on eye detection
+                    cv2.polylines(frame, [left_eye], isClosed=True, color=(0, 255, 0), thickness=1)
+                    cv2.polylines(frame, [right_eye], isClosed=True, color=(0, 255, 0), thickness=1)
 
-            if time.time() - last_blink_time > blink_threshold:
-                play_alert_sound()
-                last_blink_time = time.time()  # reset the timer after alert
-
-            # Display the resulting frame
-            cv2.imshow('Face and Blink Detection', frame)
-
-            # Write the frame to the output video file
+            cv2.imshow('Drowsiness Detection', frame)
             out.write(frame)
 
-            # Break the loop on 'q' key press
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
                 break
+            elif key == ord(' '):
+                stop_alert_sound()
+                alert_playing = False
 
-        # Release the webcam and the video writer
         cap.release()
         out.release()
-
-        # Close all OpenCV windows
         cv2.destroyAllWindows()
 else:
     print("Camera access denied by user.")
