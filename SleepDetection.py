@@ -46,6 +46,8 @@ if ask_permission():
         ear_threshold = 0.25
         ear_consec_frames = 3
         counter = 0
+        total_frames = 0
+        drowsy_frames = 0
         alert_playing = False
 
         while True:
@@ -55,6 +57,7 @@ if ask_permission():
 
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = face_mesh.process(rgb_frame)
+            total_frames += 1
 
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:
@@ -73,6 +76,7 @@ if ask_permission():
 
                     if ear < ear_threshold:
                         counter += 1
+                        drowsy_frames += 1
                         if counter >= ear_consec_frames:
                             if not alert_playing:
                                 play_alert_sound()
@@ -85,6 +89,9 @@ if ask_permission():
 
                     cv2.polylines(frame, [left_eye], isClosed=True, color=(0, 255, 0), thickness=1)
                     cv2.polylines(frame, [right_eye], isClosed=True, color=(0, 255, 0), thickness=1)
+
+            drowsiness_percentage = (drowsy_frames / total_frames) * 100
+            cv2.putText(frame, "Drowsiness: {:.2f}%".format(drowsiness_percentage), (300, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
             cv2.imshow('Drowsiness Detection', frame)
             out.write(frame)
